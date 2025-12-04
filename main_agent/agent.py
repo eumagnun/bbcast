@@ -6,6 +6,7 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import load_artifacts
 from google.cloud import storage
 from pydub import AudioSegment
+from datetime import datetime
 
 # --- 1. CONFIGURAÇÕES PRINCIPAIS ---
 
@@ -96,9 +97,13 @@ def enviar_para_bucket(arquivo_local, bucket_name, destino_blob):
         
         print(f"Enviando '{arquivo_local}' para 'gs://{bucket_name}/{destino_blob}'...")
         blob.upload_from_filename(arquivo_local)
+
+        blob.make_public() 
         
-        print(f"✅ Upload concluído com sucesso!")
-        return True
+        url_publica = blob.public_url
+        
+        print(f"✅ Upload concluído! URL: {url_publica}")
+        return url_publica
     except Exception as e:
         print(f"❌ Erro ao enviar para o bucket: {e}")
         return False
@@ -152,15 +157,18 @@ def gerar_podcast(TEXTO_ENTRADA):
             # 2. Faz Upload
             if sucesso_concat:
                 caminho_blob = f"{PASTA_NO_BUCKET}/{ARQUIVO_FINAL}"
-                sucesso_upload = enviar_para_bucket(ARQUIVO_FINAL, BUCKET_NAME, caminho_blob)
+                url_gerada   = enviar_para_bucket(ARQUIVO_FINAL, BUCKET_NAME, caminho_blob)
                 
                 # 3. Limpeza (apenas se o upload deu certo, para segurança)
-                if sucesso_upload:
+                if url_gerada:
                     limpar_arquivos_temporarios()
+                    resultado_final = f"Podcast criado com sucesso. Disponível em: {url_gerada}"
                 else:
-                    print("⚠️  Limpeza abortada: O upload falhou, mantendo arquivos locais para backup.")
+                    resultado_final = "Podcast criado localmente, mas falha no upload para o Bucket."
     else:
-        print("\n❌ A concatenação foi cancelada devido a erros na geração de um ou mais segmentos.")
+        resultado_final = "Falha na concatenação dos áudios."
+        print("\n❌ Cancelado.")
+    return resultado_final    
 
 gerador_resumo_agent = LlmAgent(
     name="gerador_resumo_agent",
@@ -179,10 +187,11 @@ gerador_podcast_agent = LlmAgent(
     name="gerador_podcast_agent",
     model="gemini-2.5-flash",
     instruction="""
-    Você é um especialista em criar podcast.
-    Você espera que te encaminhem um roteiro para o podcast.
-    Com esse roteiro em mão você sua gerrament
-    """,
+        Você é um especialista em criar podcast.
+        Você espera que te encaminhem um roteiro para o podcast.
+        Com esse roteiro em mãos, você usará a ferramenta gerar_podcast.
+        IMPORTANTE: Ao final, você DEVE responder ao usuário com a URL retornada pela ferramenta.
+        """,
     tools=[gerar_podcast],
 )
 
