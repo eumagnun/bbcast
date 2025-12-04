@@ -98,7 +98,7 @@ def enviar_para_bucket(arquivo_local, bucket_name, destino_blob):
         print(f"Enviando '{arquivo_local}' para 'gs://{bucket_name}/{destino_blob}'...")
         blob.upload_from_filename(arquivo_local)
 
-        blob.make_public() 
+        #blob.make_public() 
         
         url_publica = blob.public_url
         
@@ -145,30 +145,46 @@ def gerar_podcast(TEXTO_ENTRADA):
     arquivos_de_audio_gerados = []
     total_segmentos = len(turnos_processados)
     print(f"\nO roteiro foi dividido em {total_segmentos} segmentos para geração de áudio.")
+    
     for i, (locutor, texto_segmentado) in enumerate(turnos_processados):
         arquivo = gerar_audio(client, locutor, texto_segmentado, i + 1)
         if arquivo:
             arquivos_de_audio_gerados.append(arquivo)
 
+    resultado_final = "Falha ao gerar o podcast."
+
     if len(arquivos_de_audio_gerados) == total_segmentos:
-            # 1. Concatena
-            sucesso_concat = concatenar_audios(arquivos_de_audio_gerados, ARQUIVO_FINAL)
+        # 1. Concatena (Salva localmente como 'podcast_final.wav')
+        sucesso_concat = concatenar_audios(arquivos_de_audio_gerados, ARQUIVO_FINAL)
+        
+        # 2. Faz Upload com nome modificado
+        if sucesso_concat:
+            # --- MODIFICAÇÃO PARA YYYYMMDDSS ---
+            # Gera o sufixo: Ano Mês Dia Segundos
+            timestamp = datetime.now().strftime("%Y%m%d%S")
             
-            # 2. Faz Upload
-            if sucesso_concat:
-                caminho_blob = f"{PASTA_NO_BUCKET}/{ARQUIVO_FINAL}"
-                url_gerada   = enviar_para_bucket(ARQUIVO_FINAL, BUCKET_NAME, caminho_blob)
-                
-                # 3. Limpeza (apenas se o upload deu certo, para segurança)
-                if url_gerada:
-                    limpar_arquivos_temporarios()
-                    resultado_final = f"Podcast criado com sucesso. Disponível em: {url_gerada}"
-                else:
-                    resultado_final = "Podcast criado localmente, mas falha no upload para o Bucket."
+            # Separa o nome da extensão (.wav)
+            nome_base, extensao = os.path.splitext(ARQUIVO_FINAL)
+            
+            # Cria o novo nome para o Bucket: podcast_final_2023102745.wav
+            nome_arquivo_bucket = f"{nome_base}_{timestamp}{extensao}"
+            caminho_blob = f"{PASTA_NO_BUCKET}/{nome_arquivo_bucket}"
+            
+            # Envia usando o novo nome de destino, mas lendo o arquivo local original
+            url_gerada = enviar_para_bucket(ARQUIVO_FINAL, BUCKET_NAME, caminho_blob)
+            
+            if url_gerada:
+                limpar_arquivos_temporarios()
+                resultado_final = f"Podcast criado com sucesso. Disponível em: {url_gerada}"
+            else:
+                resultado_final = "Podcast criado localmente, mas falha no upload para o Bucket."
+        else:
+            resultado_final = "Falha na concatenação dos áudios."
     else:
-        resultado_final = "Falha na concatenação dos áudios."
+        resultado_final = "A geração foi cancelada devido a erros em segmentos de áudio."
         print("\n❌ Cancelado.")
-    return resultado_final    
+
+    return resultado_final
 
 gerador_resumo_agent = LlmAgent(
     name="gerador_resumo_agent",
